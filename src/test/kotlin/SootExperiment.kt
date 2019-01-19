@@ -1,10 +1,13 @@
 import org.junit.Assert
+import org.junit.FixMethodOrder
 import org.junit.Test
+import org.junit.runners.MethodSorters
 import soot.*
 import soot.jimple.JasminClass
 import soot.jimple.Jimple
 import soot.jimple.StringConstant
 import soot.options.Options
+import soot.tagkit.GenericAttribute
 import soot.util.JasminOutputStream
 import java.io.FileOutputStream
 import java.io.OutputStreamWriter
@@ -15,18 +18,20 @@ import java.lang.reflect.Modifier
  *
  * Created by Charlie on 18. 01 2019
  */
+@FixMethodOrder(MethodSorters.NAME_ASCENDING)
 class SootExperiment {
+    private val className = "helloworld"
+    private val v = Scene.v()
+
     /**
      * try to construct a hello-world class with Soot-jimple
      */
     @Test
-    fun testCreateClass() {
-        val v = Scene.v()
-
+    fun test01CreateClass() {
         v.loadClassAndSupport("java.lang.Object")
         v.loadClassAndSupport("java.lang.System")
 
-        val clazz = SootClass("helloWorld", Modifier.PUBLIC)
+        val clazz = SootClass(className, Modifier.PUBLIC)
         clazz.superclass = v.getSootClass("java.lang.Object")
 
         v.addClass(clazz)
@@ -96,7 +101,18 @@ class SootExperiment {
     }
 
     @Test
-    fun testAddAttrToClass() {
+    fun test02AddAttrToClass() {
+        val sClass = v.getSootClass(className)
+        val method = sClass.getMethodByName("main")
 
+        // create and add the class attribute, with data ``foo''
+        val classAttr = GenericAttribute("ca.mcgill.sable.MyClassAttr", "foo".toByteArray())
+        sClass.addTag(classAttr)
+
+        // Create and add the method attribute with no data
+        val mAttr = GenericAttribute(
+                "ca.mcgill.sable.MyMethodAttr",
+                "".toByteArray())
+        method.addTag(mAttr)
     }
 }
