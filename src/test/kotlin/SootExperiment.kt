@@ -21,20 +21,20 @@ import java.lang.reflect.Modifier
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 class SootExperiment {
     private val className = "helloworld"
-    private val v = Scene.v()
+    private val scene = Scene.v()
 
     /**
      * try to construct a hello-world class with Soot-jimple
      */
     @Test
     fun test01CreateClass() {
-        v.loadClassAndSupport("java.lang.Object")
-        v.loadClassAndSupport("java.lang.System")
+        scene.loadClassAndSupport("java.lang.Object")
+        scene.loadClassAndSupport("java.lang.System")
 
         val clazz = SootClass(className, Modifier.PUBLIC)
-        clazz.superclass = v.getSootClass("java.lang.Object")
+        clazz.superclass = scene.getSootClass("java.lang.Object")
 
-        v.addClass(clazz)
+        scene.addClass(clazz)
 
         val main = SootMethod("main",
                 listOf(ArrayType.v(RefType.v("java.lang.String"), 1)),
@@ -57,9 +57,9 @@ class SootExperiment {
                 )
         )
 
-        val printMethod = v.getMethod("<java.io.PrintStream: void println(java.lang.String)>")
+        val printMethod = scene.getMethod("<java.io.PrintStream: void println(java.lang.String)>")
 
-        val sysout = v.getField("<java.lang.System: java.io.PrintStream out>")
+        val sysout = scene.getField("<java.lang.System: java.io.PrintStream out>")
         Assert.assertTrue(sysout.isStatic)
 
         val r1 = Jimple.v().newLocal("l1", RefType.v("java.io.PrintStream"))
@@ -100,9 +100,13 @@ class SootExperiment {
         }
     }
 
+    /**
+     * Adding attr is useless in our scenario
+     * Ignoring the later soot tut from github
+     */
     @Test
     fun test02AddAttrToClass() {
-        val sClass = v.getSootClass(className)
+        val sClass = scene.getSootClass(className)
         val method = sClass.getMethodByName("main")
 
         // create and add the class attribute, with data ``foo''
@@ -114,5 +118,32 @@ class SootExperiment {
                 "ca.mcgill.sable.MyMethodAttr",
                 "".toByteArray())
         method.addTag(mAttr)
+    }
+
+    /**
+     * Try to load a jar to soot's scene
+     *
+     * Note: when spring app is packed as a jar file, the root dir within that jar
+     * is not the application's classpath, instead, the application classpath is placed
+     * at ./BOOT-INF/classes
+     */
+    @Test
+    fun test03LoadJar() {
+        val classPath = "spring_sample_apps/build/libs/exp-spring-boot-0.1.0/BOOT-INF/classes"
+        val targetClassName = "ca.utoronto.ece496.samples.HelloWorldController"
+
+        Options.v().set_no_bodies_for_excluded(true)
+        Options.v().set_allow_phantom_refs(true)
+        Options.v().set_src_prec(Options.src_prec_java)
+
+        Options.v().set_soot_classpath(classPath)
+        Scene.v().addBasicClass(targetClassName, SootClass.BODIES)
+        Scene.v().loadNecessaryClasses()
+
+        val c = Scene.v().forceResolve(targetClassName, SootClass.BODIES)
+
+        Assert.assertNotNull(c)
+        Assert.assertFalse(c.isPhantomClass)
+        Assert.assertFalse(c.isPhantom)
     }
 }
