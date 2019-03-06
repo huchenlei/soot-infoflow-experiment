@@ -27,7 +27,7 @@ public class HelloWorldController {
      * @return a simple hello string
      */
     @RequestMapping("/user")
-    public String usePage(@RequestParam String userName) {
+    public String userPage(@RequestParam String userName) {
         return "this is" + userName;
     }
 }

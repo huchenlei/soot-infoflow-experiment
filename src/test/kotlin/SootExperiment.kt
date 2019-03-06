@@ -6,6 +6,7 @@ import soot.*
 import soot.jimple.JasminClass
 import soot.jimple.Jimple
 import soot.jimple.StringConstant
+import soot.jimple.infoflow.spring.SpringAppEntryPointCreator
 import soot.options.Options
 import soot.tagkit.GenericAttribute
 import soot.util.JasminOutputStream
@@ -81,7 +82,7 @@ class SootExperiment {
         val outputJimple = true
 
         if (outputJimple) {
-            val fileName = SourceLocator.v().getFileNameFor(clazz, Options.output_format_class)
+            val fileName = SourceLocator.v().getFileNameFor(clazz, Options.output_format_jimple)
             val streamOut = JasminOutputStream(FileOutputStream(fileName))
             val writerOut = PrintWriter(OutputStreamWriter(streamOut))
 
@@ -91,7 +92,7 @@ class SootExperiment {
             streamOut.close()
         } else {
             val sClass = clazz
-            val fileName = SourceLocator.v().getFileNameFor(sClass, Options.output_format_jimple)
+            val fileName = SourceLocator.v().getFileNameFor(sClass, Options.output_format_class)
             val streamOut = FileOutputStream(fileName)
             val writerOut = PrintWriter(OutputStreamWriter(streamOut))
             Printer.v().printTo(sClass, writerOut)
@@ -146,4 +147,34 @@ class SootExperiment {
         Assert.assertFalse(c.isPhantomClass)
         Assert.assertFalse(c.isPhantom)
     }
+
+
+    /**
+     * Test the entry point creator
+     */
+    @Test
+    fun test04EntryPointCreator() {
+        scene.loadClassAndSupport("java.lang.Object")
+        scene.loadClassAndSupport("java.lang.System")
+
+        val entryPointCreator = SpringAppEntryPointCreator(
+                listOf(
+                        "ca.utoronto.ca.ece496.samples.HelloWorldController.userPage"
+                ),
+                SpringAppEntryPointCreator.AnalysisConfig()
+        )
+
+        val main = entryPointCreator.createDummyMain()
+        main.declaringClass.outputToClassFile()
+    }
+}
+
+fun SootClass.outputToClassFile() {
+    val sClass = this
+    val fileName = SourceLocator.v().getFileNameFor(sClass, Options.output_format_jimple)
+    val streamOut = FileOutputStream(fileName)
+    val writerOut = PrintWriter(OutputStreamWriter(streamOut))
+    Printer.v().printTo(sClass, writerOut)
+    writerOut.flush()
+    streamOut.close()
 }
