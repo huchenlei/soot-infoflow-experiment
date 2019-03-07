@@ -79,7 +79,7 @@ class SootExperiment {
 
         body.units.add(Jimple.v().newReturnVoidStmt())
 
-        val outputJimple = true
+        val outputJimple = false
 
         if (outputJimple) {
             val fileName = SourceLocator.v().getFileNameFor(clazz, Options.output_format_jimple)
@@ -92,7 +92,7 @@ class SootExperiment {
             streamOut.close()
         } else {
             val sClass = clazz
-            val fileName = SourceLocator.v().getFileNameFor(sClass, Options.output_format_class)
+            val fileName = SourceLocator.v().getFileNameFor(sClass, Options.output_format_jimple)
             val streamOut = FileOutputStream(fileName)
             val writerOut = PrintWriter(OutputStreamWriter(streamOut))
             Printer.v().printTo(sClass, writerOut)
@@ -159,7 +159,7 @@ class SootExperiment {
 
         val entryPointCreator = SpringAppEntryPointCreator(
                 listOf(
-                        "ca.utoronto.ca.ece496.samples.HelloWorldController.userPage"
+                        "<ca.utoronto.ca.ece496.samples.HelloWorldController: java.lang.String userPage(java.lang.String)>"
                 ),
                 SpringAppEntryPointCreator.AnalysisConfig()
         )

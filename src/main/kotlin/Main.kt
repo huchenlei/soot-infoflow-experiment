@@ -25,8 +25,8 @@ fun runAnalysis() {
 
 //    Experiment with server/client app from ECE419
     infoflow.computeInfoflow(
-            "/Users/Charlie/repos/ECE419/ecs.jar",
             "",
+            "/Users/Charlie/repos/ECE419/ecs.jar",
             "<app_kvECS.ECSClient: void main(java.lang.String[])>",
             listOf(
                     "<java.io.BufferedReader: java.lang.String readLine()>"
@@ -40,12 +40,26 @@ fun runAnalysis() {
     )
 
     val results = infoflow.results
+
     results.printResults()
     for (dataFlowResult in results.resultSet) {
+        for (stmt in dataFlowResult.source.path) {
+            // variable = o.invoke(...);
+            // variable = anothervar;
+
+            if (stmt.containsInvokeExpr()) {
+                val invokeExpr = stmt.invokeExpr
+                val method = invokeExpr.method
+                val clazz = method.declaringClass
+            }
+        }
+
+        // source[file1 lineXX] -> func1[file2 lineXX] -> func2... -> sink[file lineXX]
 
     }
 }
 
 fun main(args: Array<String>) {
-
+//    Uncomment to run analysis
+//    runAnalysis()
 }
