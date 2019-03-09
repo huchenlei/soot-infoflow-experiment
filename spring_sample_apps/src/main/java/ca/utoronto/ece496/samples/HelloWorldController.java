@@ -30,4 +30,6 @@ public class HelloWorldController {
     public String userPage(@RequestParam String userName) {
         return "this is" + userName;
     }
+
+
 }

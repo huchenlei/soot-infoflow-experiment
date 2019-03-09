@@ -1,4 +1,6 @@
-package soot.jimple.infoflow.spring;
+package ca.utoronto.ece496.spring;
+
+import ca.utoronto.ece496.utils.*;
 
 import javafx.util.Pair;
 import soot.*;
@@ -19,7 +21,11 @@ import java.util.*;
  * marked with @RequestMapping or similar annotation, and randomly call these
  * methods in different sequences, with tainted params passed in.
  * <p>
- * The main difference between this class and the default
+ * The main difference between this class and {@link soot.jimple.infoflow.entryPointCreators.DefaultEntryPointCreator}
+ * is that this class create an default taint source and pass it method calls
+ * and it also collects return value from method calls and pass them to a default
+ * sink point
+ * <p>
  * Created by Charlie on 04. 03 2019
  */
 public class SpringAppEntryPointCreator extends BaseEntryPointCreator {
@@ -85,12 +91,12 @@ public class SpringAppEntryPointCreator extends BaseEntryPointCreator {
      * int counter;
      * String ret;
      * while (true) {
-     *   if (counter == 0) {
-     *     ret = new TargetObject1().method1(defaultTaintSource, new ParamClass(), null, ...);
-     *     // sink accepts at least one string param
-     *     sink(ret);
-     *   }
-     *   if (counter == 1)
+     * if (counter == 0) { <br>
+     * ret = new TargetObject1().method1(defaultTaintSource, new ParamClass(), null, ...);<br>
+     * // sink accepts at least one string param <br>
+     * sink(ret);<br>
+     * }<br>
+     * if (counter == 1) <br>
      * ... method calls to other target methods
      * }
      *
@@ -190,7 +196,7 @@ public class SpringAppEntryPointCreator extends BaseEntryPointCreator {
         return mainMethod;
     }
 
-    protected InvokeExpr buildInvokeExpr(SootMethod methodToCall, Local classLocal, LocalGenerator gen) {
+    private InvokeExpr buildInvokeExpr(SootMethod methodToCall, Local classLocal, LocalGenerator gen) {
         return buildInvokeExpr(methodToCall, classLocal, gen, Collections.emptySet());
     }
 
@@ -201,13 +207,13 @@ public class SpringAppEntryPointCreator extends BaseEntryPointCreator {
      * <p>
      * This method returns an InvokeExpr. The caller freely operate on its return value
      *
-     * @param methodToCall SootMethod to call
-     * @param classLocal local variable on which the method is invoked on (null for static method)
-     * @param gen Local variable generator
+     * @param methodToCall  SootMethod to call
+     * @param classLocal    local variable on which the method is invoked on (null for static method)
+     * @param gen           Local variable generator
      * @param parentClasses // N/A inherent from parent class
      * @return InvokeExpr
      */
-    protected InvokeExpr buildInvokeExpr(
+    private InvokeExpr buildInvokeExpr(
             SootMethod methodToCall, Local classLocal, LocalGenerator gen, Set<SootClass> parentClasses
     ) {
         final InvokeExpr invokeExpr;
@@ -216,28 +222,18 @@ public class SpringAppEntryPointCreator extends BaseEntryPointCreator {
         if (methodToCall.getParameterCount() > 0) {
             for (Type tp : methodToCall.getParameterTypes()) {
                 Set<SootClass> constructionStack = new HashSet<>();
-                Field field;
-                // Hack
-                // Use reflection to bypass private field access issue
-                try {
-                    field = super.getClass().getDeclaredField("allowSelfReferences");
-                    assert field != null;
-                    field.setAccessible(true);
-                    assert field.isAccessible();
-                    if (!(Boolean) field.get(this))
-                        constructionStack.add(methodToCall.getDeclaringClass());
 
-                    Method method = super.getClass().getDeclaredMethod("getValueForType", Body.class, LocalGenerator.class, Type.class, Set.class, Set.class);
-                    assert method != null;
-                    method.setAccessible(true);
-                    args.add((Value) method.invoke(this, body, gen, tp, constructionStack, parentClasses));
-
-                } catch (IllegalAccessException
-                        | NoSuchFieldException
-                        | NoSuchMethodException
-                        | InvocationTargetException e) {
-                    e.printStackTrace();
+                if (!GeneralUtil.<BaseEntryPointCreator, Boolean>accessField(
+                        super.getClass(), "allowSelfReferences", this
+                )) {
+                    constructionStack.add(methodToCall.getDeclaringClass());
                 }
+
+                args.add(GeneralUtil.invokeMethod(
+                        super.getClass(), "getValueForType",
+                        Arrays.asList(Body.class, LocalGenerator.class, Type.class, Set.class, Set.class),
+                        Arrays.asList(body, gen, tp, constructionStack, parentClasses),
+                        this));
             }
 
             if (methodToCall.isStatic())
@@ -267,18 +263,16 @@ public class SpringAppEntryPointCreator extends BaseEntryPointCreator {
 
     @Override
     public Collection<String> getRequiredClasses() {
-        return null;
+        return SootMethodRepresentationParser.v().parseClassNames(methodsToCall, false).keySet();
     }
 
     @Override
     public Collection<SootMethod> getAdditionalMethods() {
-        return null;
+        return Collections.emptyList();
     }
 
     @Override
     public Collection<SootField> getAdditionalFields() {
-        return null;
+        return Collections.emptyList();
     }
-
-
 }

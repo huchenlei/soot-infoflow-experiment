@@ -1,15 +1,16 @@
+import ca.utoronto.ece496.spring.SpringAppEntryPointCreator
 import org.junit.Assert
 import org.junit.FixMethodOrder
 import org.junit.Test
 import org.junit.runners.MethodSorters
 import soot.*
-import soot.jimple.JasminClass
 import soot.jimple.Jimple
 import soot.jimple.StringConstant
-import soot.jimple.infoflow.spring.SpringAppEntryPointCreator
+import soot.jimple.infoflow.entryPointCreators.DefaultEntryPointCreator
 import soot.options.Options
 import soot.tagkit.GenericAttribute
 import soot.util.JasminOutputStream
+import java.io.File
 import java.io.FileOutputStream
 import java.io.OutputStreamWriter
 import java.io.PrintWriter
@@ -79,26 +80,7 @@ class SootExperiment {
 
         body.units.add(Jimple.v().newReturnVoidStmt())
 
-        val outputJimple = false
-
-        if (outputJimple) {
-            val fileName = SourceLocator.v().getFileNameFor(clazz, Options.output_format_jimple)
-            val streamOut = JasminOutputStream(FileOutputStream(fileName))
-            val writerOut = PrintWriter(OutputStreamWriter(streamOut))
-
-            val jasminClass = JasminClass(clazz)
-            jasminClass.print(writerOut)
-            writerOut.flush()
-            streamOut.close()
-        } else {
-            val sClass = clazz
-            val fileName = SourceLocator.v().getFileNameFor(sClass, Options.output_format_jimple)
-            val streamOut = FileOutputStream(fileName)
-            val writerOut = PrintWriter(OutputStreamWriter(streamOut))
-            Printer.v().printTo(sClass, writerOut)
-            writerOut.flush()
-            streamOut.close()
-        }
+        clazz.outputToClassFile()
     }
 
     /**
@@ -156,20 +138,46 @@ class SootExperiment {
     fun test04EntryPointCreator() {
         scene.loadClassAndSupport("java.lang.Object")
         scene.loadClassAndSupport("java.lang.System")
+        // needs to initialize soot first
 
-        val entryPointCreator = SpringAppEntryPointCreator(
-                listOf(
-                        "<ca.utoronto.ca.ece496.samples.HelloWorldController: java.lang.String userPage(java.lang.String)>"
-                ),
+        val entryPoints = listOf(
+                "<ca.utoronto.ece496.samples.HelloWorldController: java.lang.String userPage(java.lang.String)>",
+                "<ca.utoronto.ece496.samples.HelloWorldController: java.lang.String hello()>"
+        )
+
+        val springEntryPointCreator = SpringAppEntryPointCreator(
+                entryPoints,
                 SpringAppEntryPointCreator.AnalysisConfig()
         )
 
-        val main = entryPointCreator.createDummyMain()
+        val defaultEntryPointCreator = DefaultEntryPointCreator(entryPoints)
+
+        val rootDir = "spring_sample_apps/build/libs/exp-spring-boot-0.1.0/BOOT-INF/"
+        initializeSoot(
+                rootDir + "classes",
+                rootDir + "lib",
+                defaultEntryPointCreator.requiredClasses
+        )
+
+        val main = defaultEntryPointCreator.createDummyMain()
         main.declaringClass.outputToClassFile()
     }
 }
 
 fun SootClass.outputToClassFile() {
+    val sClass = this
+    val fileName = SourceLocator.v().getFileNameFor(sClass, Options.output_format_class)
+    val streamOut = JasminOutputStream(FileOutputStream(fileName))
+    val writerOut = PrintWriter(OutputStreamWriter(streamOut))
+
+    val jasminClass = soot.jimple.JasminClass(sClass)
+    jasminClass.print(writerOut)
+
+    writerOut.flush()
+    streamOut.close()
+}
+
+fun SootClass.outputToJimple() {
     val sClass = this
     val fileName = SourceLocator.v().getFileNameFor(sClass, Options.output_format_jimple)
     val streamOut = FileOutputStream(fileName)
@@ -177,4 +185,26 @@ fun SootClass.outputToClassFile() {
     Printer.v().printTo(sClass, writerOut)
     writerOut.flush()
     streamOut.close()
+}
+
+fun initializeSoot(appPath: String, libPath: String, classes: Collection<String>) {
+    soot.G.reset()
+
+    Options.v().set_no_bodies_for_excluded(true)
+    Options.v().set_allow_phantom_refs(true)
+
+    val classPath =
+            when {
+                appPath.isEmpty() -> libPath
+                libPath.isEmpty() -> appPath
+                else -> appPath + File.pathSeparator + libPath
+            }
+
+    Options.v().set_soot_classpath(classPath)
+
+    for (clazz in classes) {
+        Scene.v().addBasicClass(clazz)
+    }
+
+    Scene.v().loadNecessaryClasses()
 }
