@@ -82,14 +82,9 @@ public class SpringAppEntryPointCreator extends BaseEntryPointCreator {
         this.methodsToCall = methodsToCall;
     }
 
-    private Pair<SootClass, SootMethod> sourcePair;
-    private Pair<SootClass, SootMethod> sinkPair;
-
     public SpringAppEntryPointCreator(List<String> methodsToCall, AnalysisConfig config) {
         this(methodsToCall);
         this.config = config;
-        sourcePair = parseSootMethodString(config.defaultTaintSource);
-        sinkPair = parseSootMethodString(config.defaultSinkPoint);
     }
 
     private SootClass createDummySourceSink(String className, String sourceName, String sinkName) {
@@ -171,18 +166,12 @@ public class SpringAppEntryPointCreator extends BaseEntryPointCreator {
         // String defaultSource;
         Local defaultTaintSource = generator.generateLocal(RefType.v("java.lang.String"));
 
-        if (!sourceMethod.getReturnType().equals(RefType.v("java.lang.String"))) {
-            final String errMsg = "default taint source method does not have return type of java.lang.String. " +
-                    "instead it has type of " + sourceMethod.getReturnType() + " (" + config.defaultTaintSource;
-            logger.error(errMsg);
-            throw new RuntimeException(errMsg);
-        }
-
         // String defaultSource = dummyClass.dummySource();
-        InvokeExpr invokeExpr = buildInvokeExpr(sourceMethod, null, generator);
+        InvokeExpr invokeExpr = buildInvokeExpr(sourceMethod, null, generator, null);
         Stmt stmt = Jimple.v().newAssignStmt(defaultTaintSource, invokeExpr);
         body.getUnits().add(stmt);
 
+        // Following code are copied from @link{DefaultEntryPointCreator}
         HashMap<String, Local> localVarsForClasses = new HashMap<>();
 
         // create instance of each target class
@@ -206,7 +195,7 @@ public class SpringAppEntryPointCreator extends BaseEntryPointCreator {
         final Jimple jimple = Jimple.v();
         NopStmt startStmt = jimple.newNopStmt();
         NopStmt endStmt = jimple.newNopStmt();
-        Value intCounter = generator.generateLocal(IntType.v());
+        Local intCounter = generator.generateLocal(IntType.v());
         body.getUnits().add(startStmt);
         for (Map.Entry<String, Set<String>> entry : classMap.entrySet()) {
             Local classLocal = localVarsForClasses.get(entry.getKey());
@@ -220,12 +209,26 @@ public class SpringAppEntryPointCreator extends BaseEntryPointCreator {
                     continue;
                 }
 
+                if (!currentMethod.getReturnType().toString().equals("java.lang.String")) {
+                    logger.warn("Return type is not String for spring app");
+                    continue;
+                }
+
                 EqExpr cond = jimple.newEqExpr(intCounter, IntConstant.v(conditionCounter));
                 conditionCounter++;
                 NopStmt thenStmt = jimple.newNopStmt();
                 IfStmt ifStmt = jimple.newIfStmt(cond, thenStmt);
                 body.getUnits().add(ifStmt);
-                buildMethodCall(currentMethod, body, classLocal, generator);
+
+                // Invoke the method
+                InvokeExpr methodInvocation = buildInvokeExpr(currentMethod, classLocal, generator, defaultTaintSource);
+                Local returnLocal = generator.generateLocal(currentMethod.getReturnType());
+                body.getUnits().add(Jimple.v().newAssignStmt(returnLocal, methodInvocation));
+
+                // pass the return value to sink point
+                InvokeExpr sinkInvocation = buildInvokeExpr(sinkMethod, null, generator, returnLocal);
+                body.getUnits().add(Jimple.v().newInvokeStmt(sinkInvocation));
+
                 body.getUnits().add(thenStmt);
             }
         }
@@ -239,8 +242,8 @@ public class SpringAppEntryPointCreator extends BaseEntryPointCreator {
         return mainMethod;
     }
 
-    private InvokeExpr buildInvokeExpr(SootMethod methodToCall, Local classLocal, LocalGenerator gen) {
-        return buildInvokeExpr(methodToCall, classLocal, gen, Collections.emptySet());
+    private InvokeExpr buildInvokeExpr(SootMethod methodToCall, Local classLocal, LocalGenerator gen, Value defaultTaint) {
+        return buildInvokeExpr(methodToCall, classLocal, gen, defaultTaint, Collections.emptySet());
     }
 
     /**
@@ -250,14 +253,15 @@ public class SpringAppEntryPointCreator extends BaseEntryPointCreator {
      * <p>
      * This method returns an InvokeExpr. The caller freely operate on its return value
      *
-     * @param methodToCall  SootMethod to call
-     * @param classLocal    local variable on which the method is invoked on (null for static method)
-     * @param gen           Local variable generator
-     * @param parentClasses // N/A inherent from parent class
+     * @param methodToCall       SootMethod to call
+     * @param classLocal         local variable on which the method is invoked on (null for static method)
+     * @param gen                Local variable generator
+     * @param defaultStringParam default string param to be used for all string params
+     * @param parentClasses      // N/A inherent from parent class
      * @return InvokeExpr
      */
     private InvokeExpr buildInvokeExpr(
-            SootMethod methodToCall, Local classLocal, LocalGenerator gen, Set<SootClass> parentClasses
+            SootMethod methodToCall, Local classLocal, LocalGenerator gen, Value defaultStringParam, Set<SootClass> parentClasses
     ) {
         final InvokeExpr invokeExpr;
         List<Value> args = new LinkedList<>();
@@ -267,16 +271,21 @@ public class SpringAppEntryPointCreator extends BaseEntryPointCreator {
                 Set<SootClass> constructionStack = new HashSet<>();
 
                 if (!GeneralUtil.<BaseEntryPointCreator, Boolean>accessField(
-                        super.getClass(), "allowSelfReferences", this
+                        BaseEntryPointCreator.class, "allowSelfReferences", this
                 )) {
                     constructionStack.add(methodToCall.getDeclaringClass());
                 }
 
-                args.add(GeneralUtil.invokeMethod(
-                        super.getClass(), "getValueForType",
-                        Arrays.asList(Body.class, LocalGenerator.class, Type.class, Set.class, Set.class),
-                        Arrays.asList(body, gen, tp, constructionStack, parentClasses),
-                        this));
+                if (tp.toString().equals("java.lang.String") && defaultStringParam != null) {
+                    // Use defaultSource for String param
+                    args.add(defaultStringParam);
+                } else {
+                    args.add(GeneralUtil.invokeMethod(
+                            super.getClass(), "getValueForType",
+                            Arrays.asList(Body.class, LocalGenerator.class, Type.class, Set.class, Set.class),
+                            Arrays.asList(body, gen, tp, constructionStack, parentClasses),
+                            this));
+                }
             }
 
             if (methodToCall.isStatic())
