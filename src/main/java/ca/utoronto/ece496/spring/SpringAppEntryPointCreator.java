@@ -15,8 +15,9 @@ import java.util.*;
 
 /**
  * This entry point creator will accept a collection of method names that are
- * marked with @RequestMapping or similar annotation, and randomly call these
- * methods in different sequences, with tainted params passed in.
+ * marked with {@link org.springframework.web.bind.annotation.RequestMapping}
+ * or similar annotation, and randomly call these methods in different sequences,
+ * with tainted params passed in.
  * <p>
  * The main difference between this class and {@link soot.jimple.infoflow.entryPointCreators.DefaultEntryPointCreator}
  * is that this class create an default taint source and pass it method calls
@@ -25,6 +26,7 @@ import java.util.*;
  * <p>
  * Created by Charlie on 04. 03 2019
  */
+@SuppressWarnings("JavadocReference")
 public class SpringAppEntryPointCreator extends BaseEntryPointCreator {
     /**
      * Config object to control behaviour of the entry point creator
@@ -69,11 +71,11 @@ public class SpringAppEntryPointCreator extends BaseEntryPointCreator {
     private static String dummySourceName = "_dummy_source";
     private static String dummySinkName = "_dummy_sink";
 
-    private static String getDefaultSourceSignature() {
+    public static String getDefaultSourceSignature() {
         return "<" + dummyClassName + ": " + "java.lang.String " + dummySourceName + "()>";
     }
 
-    private static String getDefaultSinkSignature() {
+    public static String getDefaultSinkSignature() {
         return "<" + dummyClassName + ": " + "void " + dummySinkName + "(java.lang.String)>";
     }
 
@@ -159,9 +161,24 @@ public class SpringAppEntryPointCreator extends BaseEntryPointCreator {
         Map<String, Set<String>> classMap =
                 SootMethodRepresentationParser.v().parseClassNames(methodsToCall, false);
 
-        Body body = mainMethod.getActiveBody();
-        LocalGenerator generator = new LocalGenerator(body);
+        ArrayType stringArrayType = ArrayType.v(RefType.v("java.lang.String"), 1);
+        SootMethod dummyMain = new SootMethod(
+                "_dummyMain",
+                Collections.singletonList(stringArrayType),
+                VoidType.v(),
+                Modifier.PUBLIC | Modifier.STATIC
+        );
 
+        Body body = Jimple.v().newBody(dummyMain);
+        dummyMain.setActiveBody(body);
+        dummyClass.addMethod(dummyMain);
+
+        LocalGenerator generator = new LocalGenerator(body);
+        // Add parameter reference to body
+        body.getUnits().addFirst(Jimple.v().newIdentityStmt(
+                generator.generateLocal(stringArrayType),
+                Jimple.v().newParameterRef(stringArrayType, 0)
+        ));
 
         // String defaultSource;
         Local defaultTaintSource = generator.generateLocal(RefType.v("java.lang.String"));
@@ -232,6 +249,7 @@ public class SpringAppEntryPointCreator extends BaseEntryPointCreator {
                 body.getUnits().add(thenStmt);
             }
         }
+
         body.getUnits().add(endStmt);
         GotoStmt gotoStart = jimple.newGotoStmt(startStmt);
         body.getUnits().add(gotoStart);
@@ -239,6 +257,12 @@ public class SpringAppEntryPointCreator extends BaseEntryPointCreator {
         body.getUnits().add(Jimple.v().newReturnVoidStmt());
         NopEliminator.v().transform(body);
         eliminateSelfLoops(body);
+
+        // Initialize wrapper main
+        Body wrapperBody = mainMethod.getActiveBody();
+        buildMethodCall(dummyMain, wrapperBody, null, new LocalGenerator(wrapperBody));
+        wrapperBody.getUnits().add(Jimple.v().newReturnVoidStmt());
+
         return mainMethod;
     }
 

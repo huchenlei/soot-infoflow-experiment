@@ -12,15 +12,19 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @Controller
 public class HelloWorldController {
+    private static String data = null;
+
     @RequestMapping("/hello")
     public String hello() {
+        data = Mock.source();
+
         return "Hello World!";
     }
 
 
     /**
      * This is a sample method to be tested
-     *
+     * <p>
      * UserName should be treated as a taint source
      *
      * @param userName user name passed from user's request
@@ -28,8 +32,11 @@ public class HelloWorldController {
      */
     @RequestMapping("/user")
     public String userPage(@RequestParam String userName) {
-        return "this is" + userName;
+        doSink(data);
+        return userName;
     }
 
-
+    public void doSink(String data) {
+        Mock.sink(data);
+    }
 }

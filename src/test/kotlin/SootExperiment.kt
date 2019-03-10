@@ -163,6 +163,9 @@ class SootExperiment {
 
         val main = creator.createDummyMain()
         main.declaringClass.outputToClassFile()
+        Scene.v().getSootClass("_dummy").outputToClassFile()
+//        main.declaringClass.outputToJimple()
+//        Scene.v().getSootClass("_dummy").outputToJimple()
     }
 }
 
