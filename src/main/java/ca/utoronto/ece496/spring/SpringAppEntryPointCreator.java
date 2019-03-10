@@ -1,7 +1,7 @@
 package ca.utoronto.ece496.spring;
 
-import ca.utoronto.ece496.utils.*;
-
+import ca.utoronto.ece496.utils.GeneralUtil;
+import ca.utoronto.ece496.utils.SootUtil;
 import javafx.util.Pair;
 import soot.*;
 import soot.javaToJimple.LocalGenerator;
@@ -11,9 +11,6 @@ import soot.jimple.infoflow.entryPointCreators.BaseEntryPointCreator;
 import soot.jimple.infoflow.util.SootMethodRepresentationParser;
 import soot.jimple.toolkits.scalar.NopEliminator;
 
-import java.lang.reflect.Field;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.util.*;
 
 /**
@@ -37,12 +34,25 @@ public class SpringAppEntryPointCreator extends BaseEntryPointCreator {
          * Full soot-style method signature specifying a method that take
          * no input param and return a tainted String
          * <p>
-         * the default value is reading from standard input
+         * the default value is toString() method of object
          */
-        public String defaultTaintSource = "<java.util.Scanner: java.lang.String nextLine()>";
+        public String defaultTaintSource = "<java.lang.Object: java.lang.String toString()>";
+        /**
+         * Full soot-style method signature specifying a method that a String
+         * as param and return void
+         */
         public String defaultSinkPoint = "<java.io.PrintStream: void println(java.lang.String)>";
 
+        /**
+         * Restricted only for testing purpose
+         * defaultTaintSource and defaultSinkPoint are supposed to be overridden by external info
+         */
         public AnalysisConfig() {
+        }
+
+        public AnalysisConfig(String defaultTaintSource, String defaultSinkPoint) {
+            this.defaultTaintSource = defaultTaintSource;
+            this.defaultSinkPoint = defaultSinkPoint;
         }
     }
 
@@ -50,28 +60,71 @@ public class SpringAppEntryPointCreator extends BaseEntryPointCreator {
 
     private AnalysisConfig config = new AnalysisConfig();
 
+    /**
+     * Following names are reserved and should not appear in the user's program
+     * By starting those names with "_", they shall have min possibility to also
+     * appear in input program
+     */
+    private static String dummyClassName = "_dummy";
+    private static String dummySourceName = "_dummy_source";
+    private static String dummySinkName = "_dummy_sink";
+
+    private static String getDefaultSourceSignature() {
+        return "<" + dummyClassName + ": " + "java.lang.String " + dummySourceName + "()>";
+    }
+
+    private static String getDefaultSinkSignature() {
+        return "<" + dummyClassName + ": " + "void " + dummySinkName + "(java.lang.String)>";
+    }
+
     public SpringAppEntryPointCreator(List<String> methodsToCall) {
         super();
         this.methodsToCall = methodsToCall;
     }
 
+    private Pair<SootClass, SootMethod> sourcePair;
+    private Pair<SootClass, SootMethod> sinkPair;
+
     public SpringAppEntryPointCreator(List<String> methodsToCall, AnalysisConfig config) {
         this(methodsToCall);
         this.config = config;
+        sourcePair = parseSootMethodString(config.defaultTaintSource);
+        sinkPair = parseSootMethodString(config.defaultSinkPoint);
+    }
+
+    private SootClass createDummySourceSink(String className, String sourceName, String sinkName) {
+        RefType stringType = RefType.v("java.lang.String");
+
+        return SootUtil.createClass(className, Arrays.asList(
+                SootUtil.createEmptyMethod(new SootMethod(
+                        sourceName, Collections.emptyList(), stringType,
+                        Modifier.PUBLIC | Modifier.STATIC
+                )),
+                SootUtil.createEmptyMethod(new SootMethod(
+                        sinkName, Arrays.asList(stringType), VoidType.v(),
+                        Modifier.PUBLIC | Modifier.STATIC
+                ))
+        ));
     }
 
     private Pair<SootClass, SootMethod> parseSootMethodString(String methodString) {
         SootMethodAndClass sootMethodAndClass = SootMethodRepresentationParser.v().parseSootMethodString(methodString);
+        String className = sootMethodAndClass.getClassName();
 
         SootClass sootClass;
-        try {
-            sootClass = Scene.v().getSootClass(sootMethodAndClass.getClassName());
-        } catch (RuntimeException re) {
-            // class not loaded
-            sootClass = Scene.v().loadClassAndSupport(sootMethodAndClass.getClassName());
+
+        if (!Scene.v().containsClass(className)) {
+            Scene.v().addBasicClass(className);
+            Scene.v().loadNecessaryClasses();
+            sootClass = Scene.v().loadClassAndSupport(className);
+        } else {
+            sootClass = Scene.v().getSootClass(className);
         }
 
+
         SootMethod sootMethod = findMethod(sootClass, sootMethodAndClass.getSubSignature());
+        assert sootMethod != null;
+
         return new Pair<>(
                 sootClass,
                 sootMethod
@@ -104,19 +157,16 @@ public class SpringAppEntryPointCreator extends BaseEntryPointCreator {
      */
     @Override
     protected SootMethod createDummyMainInternal() {
+        SootClass dummyClass = createDummySourceSink(dummyClassName, dummySourceName, dummySinkName);
+        SootMethod sourceMethod = dummyClass.getMethodByName(dummySourceName);
+        SootMethod sinkMethod = dummyClass.getMethodByName(dummySinkName);
+
         Map<String, Set<String>> classMap =
                 SootMethodRepresentationParser.v().parseClassNames(methodsToCall, false);
 
         Body body = mainMethod.getActiveBody();
         LocalGenerator generator = new LocalGenerator(body);
 
-        Pair<SootClass, SootMethod> sourcePair = parseSootMethodString(config.defaultTaintSource);
-        SootClass sourceClass = sourcePair.getKey();
-        SootMethod sourceMethod = sourcePair.getValue();
-
-        Pair<SootClass, SootMethod> sinkPair = parseSootMethodString(config.defaultSinkPoint);
-        SootClass sinkClass = sinkPair.getKey();
-        SootMethod sinkMethod = sinkPair.getValue();
 
         // String defaultSource;
         Local defaultTaintSource = generator.generateLocal(RefType.v("java.lang.String"));
@@ -128,15 +178,8 @@ public class SpringAppEntryPointCreator extends BaseEntryPointCreator {
             throw new RuntimeException(errMsg);
         }
 
-        // Scanner rx = null;
-        Local scannerLocal = generator.generateLocal(RefType.v(sourceClass.getName()));
-        body.getUnits().add(Jimple.v().newAssignStmt(
-                scannerLocal,
-                NullConstant.v()
-        ));
-
-        // String defaultSource = rx.nextLine();
-        InvokeExpr invokeExpr = buildInvokeExpr(sourceMethod, scannerLocal, generator);
+        // String defaultSource = dummyClass.dummySource();
+        InvokeExpr invokeExpr = buildInvokeExpr(sourceMethod, null, generator);
         Stmt stmt = Jimple.v().newAssignStmt(defaultTaintSource, invokeExpr);
         body.getUnits().add(stmt);
 

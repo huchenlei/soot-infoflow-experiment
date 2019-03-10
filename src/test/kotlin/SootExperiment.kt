@@ -152,14 +152,16 @@ class SootExperiment {
 
         val defaultEntryPointCreator = DefaultEntryPointCreator(entryPoints)
 
+        val creator = springEntryPointCreator
+
         val rootDir = "spring_sample_apps/build/libs/exp-spring-boot-0.1.0/BOOT-INF/"
         initializeSoot(
                 rootDir + "classes",
                 rootDir + "lib",
-                defaultEntryPointCreator.requiredClasses
+                creator.requiredClasses
         )
 
-        val main = defaultEntryPointCreator.createDummyMain()
+        val main = creator.createDummyMain()
         main.declaringClass.outputToClassFile()
     }
 }
@@ -203,8 +205,12 @@ fun initializeSoot(appPath: String, libPath: String, classes: Collection<String>
     Options.v().set_soot_classpath(classPath)
 
     for (clazz in classes) {
-        Scene.v().addBasicClass(clazz)
+        Scene.v().addBasicClass(clazz, SootClass.BODIES)
     }
 
     Scene.v().loadNecessaryClasses()
+
+    for (clazz in classes) {
+        Assert.assertFalse(Scene.v().forceResolve(clazz, SootClass.BODIES).isPhantom)
+    }
 }
